@@ -5,6 +5,12 @@ const serverEnvSchema = z.object({
   DATABASE_URL: z.string().url(),
   AUTH_URL: z.string().url().optional(),
   AUTH_SECRET: z.string().min(32).optional(),
+  OPENAI_API_KEY: z.string().min(1).optional(),
+  ANTHROPIC_API_KEY: z.string().min(1).optional(),
+  GOOGLE_GENERATIVE_AI_API_KEY: z.string().min(1).optional(),
+  LLM_COMPARE_USE_MOCK: z.enum(["true", "false"]).optional(),
+  LLM_COMPARE_TIMEOUT_MS: z.string().regex(/^\d+$/).optional(),
+  LLM_COMPARE_MOCK_FAIL_MODELS: z.string().optional(),
 });
 
 const clientEnvSchema = z.object({
@@ -20,6 +26,12 @@ export function getServerEnv(): ServerEnv {
     DATABASE_URL: process.env.DATABASE_URL,
     AUTH_URL: process.env.AUTH_URL,
     AUTH_SECRET: process.env.AUTH_SECRET,
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+    ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+    GOOGLE_GENERATIVE_AI_API_KEY: process.env.GOOGLE_GENERATIVE_AI_API_KEY,
+    LLM_COMPARE_USE_MOCK: process.env.LLM_COMPARE_USE_MOCK,
+    LLM_COMPARE_TIMEOUT_MS: process.env.LLM_COMPARE_TIMEOUT_MS,
+    LLM_COMPARE_MOCK_FAIL_MODELS: process.env.LLM_COMPARE_MOCK_FAIL_MODELS,
   });
 }
 

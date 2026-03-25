@@ -6,9 +6,9 @@ test("トップから API 詳細ページまで遷移できる", async ({ page }
   await page.getByRole("link", { name: "API体験をはじめる" }).click();
   await expect(page.getByRole("heading", { name: "さまざまなAPIを試す" })).toBeVisible();
   await page.getByRole("link", { name: "詳細 / 試用へ進む" }).first().click();
-  await expect(page.getByRole("heading", { name: "試用エリア（モック）" })).toBeVisible();
-  await page.getByRole("button", { name: "モック実行" }).click();
-  await expect(page.getByText("レスポンス", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "LLM/モデル 比較" })).toBeVisible();
+  await page.getByRole("button", { name: "比較を実行" }).click();
+  await expect(page.getByText("比較結果エリア", { exact: true })).toBeVisible();
 });
 
 test("トップから研究アプリ体験ページまで遷移できる", async ({ page }) => {
