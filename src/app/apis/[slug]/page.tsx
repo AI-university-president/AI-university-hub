@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PageShell } from "@/components/page-shell";
 import { ApiPlayground } from "@/features/apis/components/api-playground";
+import { LlmModelComparePlayground } from "@/features/apis/components/llm-model-compare-playground";
 import { getApiToolBySlug } from "@/features/apis/data/api-tools";
 
 type ApiDetailPageProps = {
@@ -31,7 +32,11 @@ export default async function ApiDetailPage({ params }: ApiDetailPageProps) {
       </section>
 
       <section className="mt-6 grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
-        <ApiPlayground tool={tool} />
+        {tool.slug === "gpt-text-lab" ? (
+          <LlmModelComparePlayground initialPrompt={tool.samplePrompt} />
+        ) : (
+          <ApiPlayground tool={tool} />
+        )}
         <aside className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
           <h2 className="text-xl font-semibold">注意事項</h2>
           <ul className="mt-3 space-y-2 text-sm leading-7 text-slate-600 dark:text-slate-300">

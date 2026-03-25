@@ -34,7 +34,7 @@ npm install
 
 2. 環境変数を作成
 ```bash
-cp .env.example .env
+cp .env.example .env.local
 ```
 
 3. 必要に応じて `DATABASE_URL` などを更新
@@ -45,6 +45,20 @@ npm run dev
 ```
 
 ブラウザで [http://localhost:3000](http://localhost:3000) を開いて確認できます。
+
+## LLM/モデル比較ページの設定
+- `/apis/gpt-text-lab` は「LLM/モデル 比較」ページとして動作します。
+- `LLM_COMPARE_USE_MOCK=true` のときだけモック応答を返します（`.env.example` は `false`）。
+- 実APIを使う場合は `LLM_COMPARE_USE_MOCK=false` にして、以下のキーを設定してください。
+  - `OPENAI_API_KEY`
+  - `ANTHROPIC_API_KEY`
+  - `GOOGLE_GENERATIVE_AI_API_KEY`
+- 1リクエストあたりのタイムアウトは `LLM_COMPARE_TIMEOUT_MS` で調整できます。
+- 部分失敗の検証用に `LLM_COMPARE_MOCK_FAIL_MODELS=provider:model` を指定できます。
+- モデル定義は `src/features/apis/llm-compare/catalog.ts` で管理し、モデルごとに以下パラメータを切り替えています。
+  - OpenAI: `reasoning.effort`, `text.verbosity`, `max_output_tokens`（Responses API）
+  - Claude: `max_tokens`, `temperature`
+  - Gemini: `generationConfig.maxOutputTokens`, `temperature`, `topP`, `topK`
 
 ## 立ち上げ方（ローカル）
 最短で立ち上げる場合は以下の順番です。
