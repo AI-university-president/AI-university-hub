@@ -105,6 +105,14 @@ npm run build
 npm run test:e2e
 ```
 
+## Azure App Service (GitHub Actions)
+- `.github/workflows/azure-webapp.yml` で `main` への push または手動実行 (`workflow_dispatch`) 時にデプロイします。
+- Azure ログインは OIDC を使うため、GitHub リポジトリの Secrets に以下を設定してください。
+  - `AZURE_CLIENT_ID`
+  - `AZURE_TENANT_ID`
+  - `AZURE_SUBSCRIPTION_ID`
+- Web App 名は workflow の `app-name` で指定しています。環境が異なる場合は値を変更してください。
+
 ## Azure Container Apps デプロイ方針
 - `next.config.ts` で `output: "standalone"` を有効化済み
 - ルートの `Dockerfile` は Azure Container Apps で利用しやすい multi-stage 構成
