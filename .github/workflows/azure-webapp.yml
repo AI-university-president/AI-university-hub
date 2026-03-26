@@ -22,7 +22,17 @@ jobs:
 
       - run: npm ci
       - run: npm run build
-      - run: zip -r release.zip . -x ".git/*" "node_modules/*"
+      - name: Create deployment package
+        run: |
+          rm -rf deploy release.zip
+          mkdir -p deploy/.next
+          cp -R .next/standalone/* deploy/
+          cp -R .next/static deploy/.next/static
+          if [ -d public ]; then
+            cp -R public deploy/public
+          fi
+          cd deploy
+          zip -r ../release.zip .
 
       - uses: actions/upload-artifact@v4
         with:
@@ -37,8 +47,6 @@ jobs:
         with:
           name: node-app
 
-      - run: unzip release.zip
-
       - uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -48,4 +56,4 @@ jobs:
       - uses: azure/webapps-deploy@v3
         with:
           app-name: ai-university-hub-AI-university-001
-          package: .
+          package: release.zip
