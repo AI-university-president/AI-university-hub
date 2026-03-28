@@ -101,10 +101,12 @@ jobs:
       - name: Smoke test deployed page
         run: |
           python - <<'PY'
+          import os
           import time
           import urllib.request
 
-          url = "https://%s.azurewebsites.net/apis/gpt-text-lab" % "${AZURE_WEBAPP_NAME}"
+          app_name = os.environ["AZURE_WEBAPP_NAME"].lower()
+          url = f"https://{app_name}.azurewebsites.net/apis/gpt-text-lab"
           marker = "詳細パラメータ設定（任意）"
           last_error = None
 
