@@ -74,8 +74,14 @@ jobs:
             --resource-group "${AZURE_RESOURCE_GROUP}" \
             --settings \
               SCM_DO_BUILD_DURING_DEPLOYMENT=false \
-              ENABLE_ORYX_BUILD=false \
-              WEBSITE_RUN_FROM_PACKAGE=1
+              ENABLE_ORYX_BUILD=false
+
+          # This app is deployed by zip deploy with explicit startup command.
+          # Keep run-from-package disabled to avoid stale or mismatched package mounts.
+          az webapp config appsettings delete \
+            --name "${AZURE_WEBAPP_NAME}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --setting-names WEBSITE_RUN_FROM_PACKAGE || true
 
       - uses: azure/webapps-deploy@v3
         with:
@@ -126,3 +132,19 @@ jobs:
           else:
             raise SystemExit(f"Smoke test failed: {last_error}")
           PY
+
+      - name: Download App Service logs on failure
+        if: failure()
+        run: |
+          az webapp log download \
+            --name "${AZURE_WEBAPP_NAME}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --log-file webapp-logs.zip
+          unzip -l webapp-logs.zip
+
+      - name: Upload App Service logs artifact
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: webapp-logs
+          path: webapp-logs.zip
