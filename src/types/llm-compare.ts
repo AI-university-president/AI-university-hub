@@ -1,13 +1,17 @@
 export const llmProviderIds = ["chatgpt", "claude", "gemini"] as const;
+export const openAiReasoningEfforts = ["none", "low", "medium", "high", "xhigh"] as const;
+export const openAiTextVerbosities = ["low", "medium", "high"] as const;
 
 export type LlmProviderId = (typeof llmProviderIds)[number];
+export type OpenAiReasoningEffort = (typeof openAiReasoningEfforts)[number];
+export type OpenAiTextVerbosity = (typeof openAiTextVerbosities)[number];
 
 export type LlmExecutionStatus = "success" | "error";
 
 export type OpenAiModelParams = {
   maxOutputTokens: number;
-  reasoningEffort: "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
-  textVerbosity?: "low" | "medium" | "high";
+  reasoningEffort: OpenAiReasoningEffort;
+  textVerbosity?: OpenAiTextVerbosity;
   temperature?: number;
   topP?: number;
 };
@@ -54,6 +58,25 @@ export type LlmRequestTarget = {
 export type LlmCompareRequestPayload = {
   prompt: string;
   targets: LlmRequestTarget[];
+  options?: {
+    chatgpt?: {
+      reasoningEffort?: OpenAiReasoningEffort;
+      textVerbosity?: OpenAiTextVerbosity;
+      maxOutputTokens?: number;
+      temperature?: number;
+      topP?: number;
+    };
+    claude?: {
+      maxTokens?: number;
+      temperature?: number;
+    };
+    gemini?: {
+      maxOutputTokens?: number;
+      temperature?: number;
+      topP?: number;
+      topK?: number;
+    };
+  };
 };
 
 export type LlmCompareResult = {

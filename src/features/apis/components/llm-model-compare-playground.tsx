@@ -1,15 +1,35 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { llmProviderCatalog } from "@/features/apis/llm-compare/catalog";
+import { getModelByProvider, llmProviderCatalog } from "@/features/apis/llm-compare/catalog";
 import { llmCompareResponseSchema } from "@/features/apis/llm-compare/schema";
-import type { LlmCompareResult, LlmRequestTarget } from "@/types/llm-compare";
+import type {
+  LlmCompareRequestPayload,
+  LlmCompareResult,
+  LlmRequestTarget,
+  OpenAiReasoningEffort,
+  OpenAiTextVerbosity,
+} from "@/types/llm-compare";
 
 type LlmModelComparePlaygroundProps = {
   initialPrompt: string;
 };
 
 const TARGET_KEY_SEPARATOR = "::";
+const CHATGPT_REASONING_EFFORT_OPTIONS: Array<{ label: string; value: OpenAiReasoningEffort | "default" }> = [
+  { label: "モデル既定値を使う", value: "default" },
+  { label: "none", value: "none" },
+  { label: "low", value: "low" },
+  { label: "medium", value: "medium" },
+  { label: "high", value: "high" },
+  { label: "xhigh", value: "xhigh" },
+];
+const CHATGPT_TEXT_VERBOSITY_OPTIONS: Array<{ label: string; value: OpenAiTextVerbosity | "default" }> = [
+  { label: "モデル既定値を使う", value: "default" },
+  { label: "low", value: "low" },
+  { label: "medium", value: "medium" },
+  { label: "high", value: "high" },
+];
 
 function buildTargetKey(target: LlmRequestTarget) {
   return `${target.provider}${TARGET_KEY_SEPARATOR}${target.model}`;
@@ -31,14 +51,83 @@ function parseTargetKey(key: string): LlmRequestTarget | null {
   };
 }
 
-const DEFAULT_SELECTED_TARGET_KEYS = llmProviderCatalog.flatMap((provider) => {
-  const defaultModel = provider.models.find((model) => model.enabled);
-  if (!defaultModel) {
-    return [];
+const DEFAULT_SELECTED_TARGET_KEYS: string[] = [];
+
+function hasDefinedValue(options: Record<string, unknown>) {
+  return Object.values(options).some((value) => value !== undefined);
+}
+
+function getMinLimit(values: Array<number | undefined>) {
+  const defined = values.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  if (defined.length === 0) {
+    return undefined;
+  }
+  return Math.min(...defined);
+}
+
+function parseOptionalNumber(
+  raw: string,
+  label: string,
+  rules: {
+    integer?: boolean;
+    min?: number;
+    max?: number;
+  } = {},
+) {
+  if (raw.trim() === "") {
+    return undefined;
   }
 
-  return [buildTargetKey({ provider: provider.id, model: defaultModel.id })];
-});
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`${label}は数値で入力してください。`);
+  }
+
+  if (rules.integer && !Number.isInteger(parsed)) {
+    throw new Error(`${label}は整数で入力してください。`);
+  }
+
+  if (typeof rules.min === "number" && parsed < rules.min) {
+    throw new Error(`${label}は${rules.min}以上で入力してください。`);
+  }
+
+  if (typeof rules.max === "number" && parsed > rules.max) {
+    throw new Error(`${label}は${rules.max}以下で入力してください。`);
+  }
+
+  return parsed;
+}
+
+function normalizeNumericFieldValue(
+  raw: string,
+  rules: {
+    integer?: boolean;
+    min?: number;
+    max?: number;
+  } = {},
+) {
+  if (raw.trim() === "") {
+    return "";
+  }
+
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) {
+    return "";
+  }
+
+  let normalized = parsed;
+  if (typeof rules.min === "number" && normalized < rules.min) {
+    normalized = rules.min;
+  }
+  if (typeof rules.max === "number" && normalized > rules.max) {
+    normalized = rules.max;
+  }
+  if (rules.integer) {
+    normalized = Math.trunc(normalized);
+  }
+
+  return String(normalized);
+}
 
 export function LlmModelComparePlayground({ initialPrompt }: LlmModelComparePlaygroundProps) {
   const [prompt, setPrompt] = useState(initialPrompt);
@@ -48,12 +137,70 @@ export function LlmModelComparePlayground({ initialPrompt }: LlmModelComparePlay
   const [requestError, setRequestError] = useState<string | null>(null);
   const [results, setResults] = useState<LlmCompareResult[]>([]);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [chatGptReasoningEffort, setChatGptReasoningEffort] = useState<OpenAiReasoningEffort | "default">("default");
+  const [chatGptTextVerbosity, setChatGptTextVerbosity] = useState<OpenAiTextVerbosity | "default">("default");
+  const [chatGptMaxOutputTokens, setChatGptMaxOutputTokens] = useState("");
+  const [chatGptTemperature, setChatGptTemperature] = useState("");
+  const [chatGptTopP, setChatGptTopP] = useState("");
+  const [claudeMaxTokens, setClaudeMaxTokens] = useState("");
+  const [claudeTemperature, setClaudeTemperature] = useState("");
+  const [geminiMaxOutputTokens, setGeminiMaxOutputTokens] = useState("");
+  const [geminiTemperature, setGeminiTemperature] = useState("");
+  const [geminiTopP, setGeminiTopP] = useState("");
+  const [geminiTopK, setGeminiTopK] = useState("");
 
   const selectedTargets = useMemo(() => {
     return selectedTargetKeys
       .map((key) => parseTargetKey(key))
       .filter((target): target is LlmRequestTarget => target !== null);
   }, [selectedTargetKeys]);
+  const selectedChatGptTargets = useMemo(
+    () => selectedTargets.filter((target) => target.provider === "chatgpt"),
+    [selectedTargets],
+  );
+  const selectedClaudeTargets = useMemo(
+    () => selectedTargets.filter((target) => target.provider === "claude"),
+    [selectedTargets],
+  );
+  const selectedGeminiTargets = useMemo(
+    () => selectedTargets.filter((target) => target.provider === "gemini"),
+    [selectedTargets],
+  );
+  const hasSelectedChatGptTarget = selectedChatGptTargets.length > 0;
+  const hasSelectedClaudeTarget = selectedClaudeTargets.length > 0;
+  const hasSelectedGeminiTarget = selectedGeminiTargets.length > 0;
+  const chatGptMaxOutputTokensLimit = useMemo(
+    () =>
+      getMinLimit(
+        selectedChatGptTargets.map((target) => getModelByProvider("chatgpt", target.model)?.params.openai?.maxOutputTokens),
+      ),
+    [selectedChatGptTargets],
+  );
+  const claudeMaxTokensLimit = useMemo(
+    () => getMinLimit(selectedClaudeTargets.map((target) => getModelByProvider("claude", target.model)?.params.claude?.maxTokens)),
+    [selectedClaudeTargets],
+  );
+  const geminiMaxOutputTokensLimit = useMemo(
+    () =>
+      getMinLimit(
+        selectedGeminiTargets.map((target) => getModelByProvider("gemini", target.model)?.params.gemini?.maxOutputTokens),
+      ),
+    [selectedGeminiTargets],
+  );
+  const canUseChatGptSamplingControls = useMemo(() => {
+    if (!hasSelectedChatGptTarget) {
+      return false;
+    }
+
+    if (chatGptReasoningEffort !== "default") {
+      return chatGptReasoningEffort === "none";
+    }
+
+    return selectedChatGptTargets.every((target) => {
+      const model = getModelByProvider("chatgpt", target.model);
+      return model?.params.openai?.reasoningEffort === "none";
+    });
+  }, [chatGptReasoningEffort, hasSelectedChatGptTarget, selectedChatGptTargets]);
 
   const resultOrder = useMemo(() => {
     return new Map(selectedTargets.map((target, index) => [buildTargetKey(target), index]));
@@ -82,6 +229,69 @@ export function LlmModelComparePlayground({ initialPrompt }: LlmModelComparePlay
       return;
     }
 
+    let requestBody: LlmCompareRequestPayload;
+
+    try {
+      const options: NonNullable<LlmCompareRequestPayload["options"]> = {};
+      const chatGptOptions = {
+        reasoningEffort:
+          hasSelectedChatGptTarget && chatGptReasoningEffort !== "default" ? chatGptReasoningEffort : undefined,
+        textVerbosity:
+          hasSelectedChatGptTarget && chatGptTextVerbosity !== "default" ? chatGptTextVerbosity : undefined,
+        maxOutputTokens: hasSelectedChatGptTarget
+          ? parseOptionalNumber(chatGptMaxOutputTokens, "ChatGPT max output tokens", {
+              integer: true,
+              min: 16,
+              max: chatGptMaxOutputTokensLimit,
+            })
+          : undefined,
+        temperature: hasSelectedChatGptTarget && canUseChatGptSamplingControls
+          ? parseOptionalNumber(chatGptTemperature, "ChatGPT temperature", { min: 0, max: 2 })
+          : undefined,
+        topP: hasSelectedChatGptTarget && canUseChatGptSamplingControls
+          ? parseOptionalNumber(chatGptTopP, "ChatGPT top_p", { min: 0, max: 1 })
+          : undefined,
+      };
+      if (hasDefinedValue(chatGptOptions)) {
+        options.chatgpt = chatGptOptions;
+      }
+
+      const claudeOptions = {
+        maxTokens: hasSelectedClaudeTarget
+          ? parseOptionalNumber(claudeMaxTokens, "Claude max tokens", { integer: true, min: 1, max: claudeMaxTokensLimit })
+          : undefined,
+        temperature: hasSelectedClaudeTarget ? parseOptionalNumber(claudeTemperature, "Claude temperature", { min: 0, max: 1 }) : undefined,
+      };
+      if (hasDefinedValue(claudeOptions)) {
+        options.claude = claudeOptions;
+      }
+
+      const geminiOptions = {
+        maxOutputTokens: hasSelectedGeminiTarget
+          ? parseOptionalNumber(geminiMaxOutputTokens, "Gemini max output tokens", {
+              integer: true,
+              min: 1,
+              max: geminiMaxOutputTokensLimit,
+            })
+          : undefined,
+        temperature: hasSelectedGeminiTarget ? parseOptionalNumber(geminiTemperature, "Gemini temperature", { min: 0, max: 2 }) : undefined,
+        topP: hasSelectedGeminiTarget ? parseOptionalNumber(geminiTopP, "Gemini topP", { min: 0, max: 1 }) : undefined,
+        topK: hasSelectedGeminiTarget ? parseOptionalNumber(geminiTopK, "Gemini topK", { integer: true, min: 1 }) : undefined,
+      };
+      if (hasDefinedValue(geminiOptions)) {
+        options.gemini = geminiOptions;
+      }
+
+      requestBody = {
+        prompt: trimmedPrompt,
+        targets: selectedTargets,
+        ...(Object.keys(options).length > 0 ? { options } : {}),
+      };
+    } catch (error) {
+      setValidationError(error instanceof Error ? error.message : "パラメータ入力が不正です。");
+      return;
+    }
+
     setValidationError(null);
     setRequestError(null);
     setCopiedKey(null);
@@ -94,10 +304,7 @@ export function LlmModelComparePlayground({ initialPrompt }: LlmModelComparePlay
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          prompt: trimmedPrompt,
-          targets: selectedTargets,
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       const responseText = await response.text();
@@ -156,17 +363,9 @@ export function LlmModelComparePlayground({ initialPrompt }: LlmModelComparePlay
       <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
         同じプロンプトを複数モデルに送り、回答の違いを並べて確認できます。比較したいモデルを選び、実行してください。
       </p>
-
-      <label htmlFor="llm-compare-prompt" className="mt-4 block text-sm font-medium">
-        プロンプト入力欄
-      </label>
-      <textarea
-        id="llm-compare-prompt"
-        value={prompt}
-        onChange={(event) => setPrompt(event.target.value)}
-        className="mt-2 h-36 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm leading-6 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-100 dark:border-slate-700 dark:bg-slate-950 dark:focus:ring-sky-900"
-      />
-
+      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+        初期状態ではモデルは選択されません。比較したいモデルのみチェックしてください。
+      </p>
       <div className="mt-6">
         <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">LLM/モデル選択エリア</h3>
         <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -207,6 +406,313 @@ export function LlmModelComparePlayground({ initialPrompt }: LlmModelComparePlay
             ))}
         </div>
       </div>
+      <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-950">
+        <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">詳細パラメータ設定（任意）</h3>
+        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+          OpenAI / Claude / Gemini の公式APIで公開されている主要パラメータをプロバイダ別に上書きできます。
+        </p>
+        <div className="mt-3 grid gap-3 lg:grid-cols-3">
+          <article className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+            <h4 className="text-sm font-semibold">OpenAI</h4>
+            <div className="mt-2 space-y-2">
+              <label htmlFor="chatgpt-reasoning-effort" className="block text-xs font-medium">
+                Reasoning effort
+              </label>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">推論の深さと速度を調整</p>
+              <select
+                id="chatgpt-reasoning-effort"
+                value={chatGptReasoningEffort}
+                onChange={(event) => setChatGptReasoningEffort(event.target.value as OpenAiReasoningEffort | "default")}
+                disabled={!hasSelectedChatGptTarget}
+                className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-100 dark:border-slate-700 dark:bg-slate-950 dark:focus:ring-sky-900"
+              >
+                {CHATGPT_REASONING_EFFORT_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+
+              <label htmlFor="chatgpt-text-verbosity" className="block text-xs font-medium">
+                Text verbosity
+              </label>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">回答文の詳しさを調整</p>
+              <select
+                id="chatgpt-text-verbosity"
+                value={chatGptTextVerbosity}
+                onChange={(event) => setChatGptTextVerbosity(event.target.value as OpenAiTextVerbosity | "default")}
+                disabled={!hasSelectedChatGptTarget}
+                className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-100 dark:border-slate-700 dark:bg-slate-950 dark:focus:ring-sky-900"
+              >
+                {CHATGPT_TEXT_VERBOSITY_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+
+              <label htmlFor="chatgpt-max-output-tokens" className="block text-xs font-medium">
+                max output tokens
+              </label>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">出力の最大トークン数</p>
+              <input
+                id="chatgpt-max-output-tokens"
+                type="number"
+                min={16}
+                max={chatGptMaxOutputTokensLimit}
+                step={1}
+                value={chatGptMaxOutputTokens}
+                onChange={(event) => setChatGptMaxOutputTokens(event.target.value)}
+                onBlur={() =>
+                  setChatGptMaxOutputTokens(
+                    normalizeNumericFieldValue(chatGptMaxOutputTokens, {
+                      integer: true,
+                      min: 16,
+                      max: chatGptMaxOutputTokensLimit,
+                    }),
+                  )
+                }
+                disabled={!hasSelectedChatGptTarget}
+                className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-100 dark:border-slate-700 dark:bg-slate-950 dark:focus:ring-sky-900"
+              />
+
+              <label htmlFor="chatgpt-temperature" className="block text-xs font-medium">
+                temperature
+              </label>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">高いほど多様、低いほど安定</p>
+              <input
+                id="chatgpt-temperature"
+                type="number"
+                min={0}
+                max={2}
+                step={0.1}
+                value={chatGptTemperature}
+                onChange={(event) => setChatGptTemperature(event.target.value)}
+                onBlur={() =>
+                  setChatGptTemperature(
+                    normalizeNumericFieldValue(chatGptTemperature, {
+                      min: 0,
+                      max: 2,
+                    }),
+                  )
+                }
+                disabled={!canUseChatGptSamplingControls}
+                className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-100 dark:border-slate-700 dark:bg-slate-950 dark:focus:ring-sky-900"
+              />
+
+              <label htmlFor="chatgpt-top-p" className="block text-xs font-medium">
+                top_p
+              </label>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">確率上位から語を選ぶ範囲</p>
+              <input
+                id="chatgpt-top-p"
+                type="number"
+                min={0}
+                max={1}
+                step={0.05}
+                value={chatGptTopP}
+                onChange={(event) => setChatGptTopP(event.target.value)}
+                onBlur={() =>
+                  setChatGptTopP(
+                    normalizeNumericFieldValue(chatGptTopP, {
+                      min: 0,
+                      max: 1,
+                    }),
+                  )
+                }
+                disabled={!canUseChatGptSamplingControls}
+                className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-100 dark:border-slate-700 dark:bg-slate-950 dark:focus:ring-sky-900"
+              />
+              {!hasSelectedChatGptTarget ? (
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">ChatGPT選択時のみ設定可能</p>
+              ) : null}
+              {hasSelectedChatGptTarget && typeof chatGptMaxOutputTokensLimit === "number" ? (
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">max output tokens 上限: {chatGptMaxOutputTokensLimit}</p>
+              ) : null}
+              {!canUseChatGptSamplingControls ? (
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">temperature/top_pはreasoning none時のみ</p>
+              ) : null}
+            </div>
+          </article>
+
+          <article className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+            <h4 className="text-sm font-semibold">Claude</h4>
+            <div className="mt-2 space-y-2">
+              <label htmlFor="claude-max-tokens" className="block text-xs font-medium">
+                max tokens
+              </label>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">出力の最大トークン数</p>
+              <input
+                id="claude-max-tokens"
+                type="number"
+                min={1}
+                max={claudeMaxTokensLimit}
+                step={1}
+                value={claudeMaxTokens}
+                onChange={(event) => setClaudeMaxTokens(event.target.value)}
+                onBlur={() =>
+                  setClaudeMaxTokens(
+                    normalizeNumericFieldValue(claudeMaxTokens, {
+                      integer: true,
+                      min: 1,
+                      max: claudeMaxTokensLimit,
+                    }),
+                  )
+                }
+                disabled={!hasSelectedClaudeTarget}
+                className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-100 dark:border-slate-700 dark:bg-slate-950 dark:focus:ring-sky-900"
+              />
+
+              <label htmlFor="claude-temperature" className="block text-xs font-medium">
+                temperature
+              </label>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">高いほど多様、低いほど安定</p>
+              <input
+                id="claude-temperature"
+                type="number"
+                min={0}
+                max={1}
+                step={0.1}
+                value={claudeTemperature}
+                onChange={(event) => setClaudeTemperature(event.target.value)}
+                onBlur={() =>
+                  setClaudeTemperature(
+                    normalizeNumericFieldValue(claudeTemperature, {
+                      min: 0,
+                      max: 1,
+                    }),
+                  )
+                }
+                disabled={!hasSelectedClaudeTarget}
+                className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-100 dark:border-slate-700 dark:bg-slate-950 dark:focus:ring-sky-900"
+              />
+              {!hasSelectedClaudeTarget ? (
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">Claude選択時のみ設定可能</p>
+              ) : null}
+              {hasSelectedClaudeTarget && typeof claudeMaxTokensLimit === "number" ? (
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">max tokens 上限: {claudeMaxTokensLimit}</p>
+              ) : null}
+            </div>
+          </article>
+
+          <article className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+            <h4 className="text-sm font-semibold">Gemini</h4>
+            <div className="mt-2 space-y-2">
+              <label htmlFor="gemini-max-output-tokens" className="block text-xs font-medium">
+                max output tokens
+              </label>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">出力の最大トークン数</p>
+              <input
+                id="gemini-max-output-tokens"
+                type="number"
+                min={1}
+                max={geminiMaxOutputTokensLimit}
+                step={1}
+                value={geminiMaxOutputTokens}
+                onChange={(event) => setGeminiMaxOutputTokens(event.target.value)}
+                onBlur={() =>
+                  setGeminiMaxOutputTokens(
+                    normalizeNumericFieldValue(geminiMaxOutputTokens, {
+                      integer: true,
+                      min: 1,
+                      max: geminiMaxOutputTokensLimit,
+                    }),
+                  )
+                }
+                disabled={!hasSelectedGeminiTarget}
+                className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-100 dark:border-slate-700 dark:bg-slate-950 dark:focus:ring-sky-900"
+              />
+
+              <label htmlFor="gemini-temperature" className="block text-xs font-medium">
+                temperature
+              </label>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">高いほど多様、低いほど安定</p>
+              <input
+                id="gemini-temperature"
+                type="number"
+                min={0}
+                max={2}
+                step={0.1}
+                value={geminiTemperature}
+                onChange={(event) => setGeminiTemperature(event.target.value)}
+                onBlur={() =>
+                  setGeminiTemperature(
+                    normalizeNumericFieldValue(geminiTemperature, {
+                      min: 0,
+                      max: 2,
+                    }),
+                  )
+                }
+                disabled={!hasSelectedGeminiTarget}
+                className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-100 dark:border-slate-700 dark:bg-slate-950 dark:focus:ring-sky-900"
+              />
+
+              <label htmlFor="gemini-top-p" className="block text-xs font-medium">
+                topP
+              </label>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">確率上位語から選ぶ割合</p>
+              <input
+                id="gemini-top-p"
+                type="number"
+                min={0}
+                max={1}
+                step={0.05}
+                value={geminiTopP}
+                onChange={(event) => setGeminiTopP(event.target.value)}
+                onBlur={() =>
+                  setGeminiTopP(
+                    normalizeNumericFieldValue(geminiTopP, {
+                      min: 0,
+                      max: 1,
+                    }),
+                  )
+                }
+                disabled={!hasSelectedGeminiTarget}
+                className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-100 dark:border-slate-700 dark:bg-slate-950 dark:focus:ring-sky-900"
+              />
+
+              <label htmlFor="gemini-top-k" className="block text-xs font-medium">
+                topK
+              </label>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">候補語を上位K個に制限</p>
+              <input
+                id="gemini-top-k"
+                type="number"
+                min={1}
+                step={1}
+                value={geminiTopK}
+                onChange={(event) => setGeminiTopK(event.target.value)}
+                onBlur={() =>
+                  setGeminiTopK(
+                    normalizeNumericFieldValue(geminiTopK, {
+                      integer: true,
+                      min: 1,
+                    }),
+                  )
+                }
+                disabled={!hasSelectedGeminiTarget}
+                className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-100 dark:border-slate-700 dark:bg-slate-950 dark:focus:ring-sky-900"
+              />
+              {!hasSelectedGeminiTarget ? (
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">Gemini選択時のみ設定可能</p>
+              ) : null}
+              {hasSelectedGeminiTarget && typeof geminiMaxOutputTokensLimit === "number" ? (
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">max output tokens 上限: {geminiMaxOutputTokensLimit}</p>
+              ) : null}
+            </div>
+          </article>
+        </div>
+      </div>
+
+      <label htmlFor="llm-compare-prompt" className="mt-4 block text-sm font-medium">
+        プロンプト入力欄
+      </label>
+      <textarea
+        id="llm-compare-prompt"
+        value={prompt}
+        onChange={(event) => setPrompt(event.target.value)}
+        className="mt-2 h-36 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm leading-6 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-100 dark:border-slate-700 dark:bg-slate-950 dark:focus:ring-sky-900"
+      />
 
       {validationError ? (
         <p className="mt-4 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
