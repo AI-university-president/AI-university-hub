@@ -33,7 +33,7 @@ function getTimeoutMs() {
   return raw;
 }
 
-export async function runLlmCompare({ prompt, targets }: LlmCompareRequestPayload): Promise<LlmCompareResult[]> {
+export async function runLlmCompare({ prompt, targets, options }: LlmCompareRequestPayload): Promise<LlmCompareResult[]> {
   const useMock = shouldUseMockLlmResponse();
   const timeoutMs = getTimeoutMs();
 
@@ -47,11 +47,39 @@ export async function runLlmCompare({ prompt, targets }: LlmCompareRequestPayloa
       const modelLabel = modelDefinition?.label ?? target.model;
 
       try {
+        const baseModelParams = modelDefinition?.params ?? {};
+        const modelParams =
+          target.provider === "chatgpt" && baseModelParams.openai
+            ? {
+                ...baseModelParams,
+                openai: {
+                  ...baseModelParams.openai,
+                  ...options?.chatgpt,
+                },
+              }
+            : target.provider === "claude" && baseModelParams.claude
+              ? {
+                  ...baseModelParams,
+                  claude: {
+                    ...baseModelParams.claude,
+                    ...options?.claude,
+                  },
+                }
+              : target.provider === "gemini" && baseModelParams.gemini
+                ? {
+                    ...baseModelParams,
+                    gemini: {
+                      ...baseModelParams.gemini,
+                      ...options?.gemini,
+                    },
+                  }
+                : baseModelParams;
+
         const text = await providerRunnerMap[target.provider]({
           providerLabel,
           modelLabel,
           model: target.model,
-          modelParams: modelDefinition?.params ?? {},
+          modelParams,
           prompt,
           timeoutMs,
           useMock,
