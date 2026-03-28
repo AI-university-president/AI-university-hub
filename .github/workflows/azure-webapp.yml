@@ -67,6 +67,16 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
+      - name: Force App Service deploy/runtime settings
+        run: |
+          az webapp config appsettings set \
+            --name "${AZURE_WEBAPP_NAME}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --settings \
+              SCM_DO_BUILD_DURING_DEPLOYMENT=false \
+              ENABLE_ORYX_BUILD=false \
+              WEBSITE_RUN_FROM_PACKAGE=1
+
       - uses: azure/webapps-deploy@v3
         with:
           app-name: ${{ env.AZURE_WEBAPP_NAME }}
@@ -90,5 +100,27 @@ jobs:
 
       - name: Smoke test deployed page
         run: |
-          sleep 15
-          curl -fsSL "https://${AZURE_WEBAPP_NAME}.azurewebsites.net/apis/gpt-text-lab" | python -c "import sys; html=sys.stdin.read(); marker='詳細パラメータ設定（任意）'; assert marker in html, f'marker not found: {marker}'"
+          python - <<'PY'
+          import time
+          import urllib.request
+
+          url = "https://%s.azurewebsites.net/apis/gpt-text-lab" % "${AZURE_WEBAPP_NAME}"
+          marker = "詳細パラメータ設定（任意）"
+          last_error = None
+
+          for attempt in range(1, 13):
+            try:
+              with urllib.request.urlopen(url, timeout=20) as response:
+                html = response.read().decode("utf-8", errors="replace")
+                if marker in html:
+                  print(f"Smoke test passed on attempt {attempt}")
+                  break
+                last_error = f"marker not found (attempt {attempt})"
+            except Exception as exc:
+              last_error = f"{type(exc).__name__}: {exc}"
+
+            if attempt < 12:
+              time.sleep(10)
+          else:
+            raise SystemExit(f"Smoke test failed: {last_error}")
+          PY
