@@ -32,14 +32,20 @@ jobs:
           rm -rf deploy release.zip
           mkdir -p deploy/.next
           if [ -f .next/standalone/server.js ]; then
-            cp -R .next/standalone/* deploy/
+            cp -R .next/standalone/. deploy/
           else
+            found_standalone=false
             for dir in .next/standalone/*; do
               if [ -f "$dir/server.js" ]; then
-                cp -R "$dir"/* deploy/
+                cp -R "$dir"/. deploy/
+                found_standalone=true
                 break
               fi
             done
+            if [ "$found_standalone" = false ]; then
+              echo "Could not find standalone server.js under .next/standalone"
+              exit 1
+            fi
           fi
           cp -R .next/static deploy/.next/static
           if [ -d public ]; then
@@ -48,6 +54,10 @@ jobs:
 
           if [ ! -f deploy/server.js ]; then
             echo "server.js was not found in deploy package"
+            exit 1
+          fi
+          if [ ! -f deploy/.next/BUILD_ID ]; then
+            echo ".next/BUILD_ID was not found in deploy package"
             exit 1
           fi
 
