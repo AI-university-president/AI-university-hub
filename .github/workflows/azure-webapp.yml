@@ -72,6 +72,8 @@ jobs:
           app-name: ${{ env.AZURE_WEBAPP_NAME }}
           package: release.zip
           startup-command: "node server.js"
+          clean: true
+          restart: true
 
       - name: Force startup command on App Service
         run: |
@@ -79,3 +81,14 @@ jobs:
             --name "${AZURE_WEBAPP_NAME}" \
             --resource-group "${AZURE_RESOURCE_GROUP}" \
             --startup-file "node server.js"
+
+      - name: Restart App Service
+        run: |
+          az webapp restart \
+            --name "${AZURE_WEBAPP_NAME}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}"
+
+      - name: Smoke test deployed page
+        run: |
+          sleep 15
+          curl -fsSL "https://${AZURE_WEBAPP_NAME}.azurewebsites.net/apis/gpt-text-lab" | python -c "import sys; html=sys.stdin.read(); marker='詳細パラメータ設定（任意）'; assert marker in html, f'marker not found: {marker}'"
